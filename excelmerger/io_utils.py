@@ -49,3 +49,24 @@ def save_to_excel(df, output_path):
         os.makedirs(output_dir, exist_ok=True)
 
     df.to_excel(output_path, index=False, engine="openpyxl")
+
+def save_file(df, output_path, file_format="xlsx"):
+    """
+    保存结果为指定格式的文件（支持 Excel 和 CSV）
+
+    Args:
+        df: 数据框
+        output_path: 输出文件路径
+        file_format: 文件格式，'xlsx' 或 'csv'
+    """
+    # 修复：只有当目录路径非空时才创建目录
+    output_dir = os.path.dirname(output_path)
+    if output_dir:  # 避免空字符串导致的错误
+        os.makedirs(output_dir, exist_ok=True)
+
+    if file_format.lower() == "csv":
+        # 保存为CSV格式，使用UTF-8编码（带BOM以便Excel正确打开）
+        df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    else:
+        # 默认保存为Excel格式
+        df.to_excel(output_path, index=False, engine="openpyxl")

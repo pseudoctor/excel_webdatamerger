@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 import pandas as pd
 
 from .config_manager import ConfigManager
-from .io_utils import read_file, save_to_excel
+from .io_utils import read_file, save_to_excel, save_file
 from .logger import setup_logger
 from .merger import ExcelMergerCore
 
@@ -60,6 +60,7 @@ class ExcelMergerGUI:
         self.enable_fuzzy_match = tk.BooleanVar(value=False)  # 新增：模糊匹配
         self.smart_dedup = tk.BooleanVar(value=False)  # 新增：智能去重
         self.dedup_keys = tk.StringVar(value="")  # 新增：去重关键字段
+        self.output_format = tk.StringVar(value="xlsx")  # 新增：输出格式（xlsx或csv）
 
         self._build_ui()
 
@@ -140,6 +141,18 @@ class ExcelMergerGUI:
         tk.Entry(row3, textvariable=self.dedup_keys, width=40,
                 bg="#404040", fg="#FFFFFF", insertbackground="#FFFFFF",
                 font=("Helvetica", 10)).pack(side=tk.LEFT, padx=5)
+
+        # 第四行：输出格式选择
+        row4 = tk.Frame(opt_frame, bg="#1a1a1a")
+        row4.pack(fill=tk.X, padx=5, pady=2)
+        tk.Label(row4, text="输出格式:",
+                fg="#FFFFFF", bg="#1a1a1a", font=("Helvetica", 10)).pack(side=tk.LEFT, padx=10)
+        tk.Radiobutton(row4, text="Excel (.xlsx)", variable=self.output_format, value="xlsx",
+                      bg="#1a1a1a", fg="#FFFFFF", selectcolor="#404040",
+                      activebackground="#1a1a1a", activeforeground="#FFFFFF").pack(side=tk.LEFT, padx=10)
+        tk.Radiobutton(row4, text="CSV (.csv)", variable=self.output_format, value="csv",
+                      bg="#1a1a1a", fg="#FFFFFF", selectcolor="#404040",
+                      activebackground="#1a1a1a", activeforeground="#FFFFFF").pack(side=tk.LEFT, padx=10)
 
         # 文件预览区
         preview_frame = tk.LabelFrame(self.root, text="👁 文件预览（前5行）", font=("Helvetica", 11, "bold"))
@@ -240,10 +253,19 @@ class ExcelMergerGUI:
             messagebox.showwarning("提示", "请先选择要合并的文件！")
             return
 
+        # 根据选择的输出格式设置文件扩展名和过滤器
+        selected_format = self.output_format.get()
+        if selected_format == "csv":
+            default_ext = ".csv"
+            file_types = [("CSV 文件", "*.csv")]
+        else:
+            default_ext = ".xlsx"
+            file_types = [("Excel 文件", "*.xlsx")]
+
         output = filedialog.asksaveasfilename(
             title="保存合并结果",
-            defaultextension=".xlsx",
-            filetypes=[("Excel 文件", "*.xlsx")]
+            defaultextension=default_ext,
+            filetypes=file_types
         )
         if not output:
             return
@@ -343,7 +365,7 @@ class ExcelMergerGUI:
         # 第五阶段：保存文件
         self.status_text.set("正在保存结果...")
         self.progress_var.set(90)
-        save_to_excel(merged, output)
+        save_file(merged, output, file_format=selected_format)
 
         self.progress_var.set(100)
         self.status_text.set("合并完成 ✅")
@@ -450,11 +472,27 @@ class ExcelMergerGUI:
         self.log("📋 列名映射报告")
         self.log("=" * 50)
 
+        unmapped_columns = []  # 收集未映射的列
+
         for file_sheet, mappings in total_report.items():
             self.log(f"\n文件: {file_sheet}")
             for orig, (mapped, match_type) in mappings.items():
-                if orig != mapped:  # 只显示被映射的列
-                    self.log(f"  • {orig} → {mapped} [{match_type}]")
+                if orig != mapped:
+                    # 显示被映射的列
+                    self.log(f"  ✓ {orig} → {mapped} [{match_type}]")
+                elif match_type == "未映射":
+                    # 收集未映射的列
+                    unmapped_columns.append((file_sheet, orig))
+
+        # 如果有未映射的列，显示警告
+        if unmapped_columns:
+            self.log("\n⚠️  未映射的列（保持原列名）:")
+            seen_cols = set()
+            for file_sheet, col in unmapped_columns:
+                if col not in seen_cols:
+                    self.log(f"  • {col}")
+                    seen_cols.add(col)
+            self.log('\n💡 提示: 如需统一这些列名，请在"列名映射配置"中添加相应规则')
 
         self.log("=" * 50)
 

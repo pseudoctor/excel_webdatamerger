@@ -62,6 +62,13 @@ class ExcelMergerGUI:
         self.dedup_keys = tk.StringVar(value="")  # 新增：去重关键字段
         self.output_format = tk.StringVar(value="xlsx")  # 新增：输出格式（xlsx或csv）
 
+        # 列选择相关
+        self.all_columns_info = {}  # 存储列信息：{列名: {'mapped': 映射后名称, 'sources': [来源文件]}}
+        self.excluded_columns = set()  # 用户选择要删除的列名集合
+        self.column_checkbuttons = []  # UI组件引用列表
+        self.column_selection_frame = None  # 列选择面板引用
+        self.selected_count_label = None  # 已选择数量标签
+
         self._build_ui()
 
     # ======================================================
@@ -161,6 +168,71 @@ class ExcelMergerGUI:
                                     bg="#1e1e1e", fg="white")
         self.preview_text.pack(fill=tk.BOTH, expand=True)
 
+        # 列选择区
+        column_frame = tk.LabelFrame(self.root, text="📋 列选择（勾选要删除的列）",
+                                     font=("Helvetica", 11, "bold"))
+        column_frame.pack(fill=tk.BOTH, padx=10, pady=5, expand=False)
+
+        # 顶部按钮区
+        btn_row = tk.Frame(column_frame, bg="#1a1a1a")
+        btn_row.pack(fill=tk.X, padx=5, pady=5)
+
+        tk.Button(btn_row, text="全选", command=self._select_all_columns,
+                 bg="#707070", fg="#000000", font=("Helvetica", 9),
+                 relief=tk.RAISED, bd=2, cursor="hand2",
+                 highlightbackground="#707070", activebackground="#909090",
+                 activeforeground="#000000").pack(side=tk.LEFT, padx=2)
+
+        tk.Button(btn_row, text="全不选", command=self._deselect_all_columns,
+                 bg="#707070", fg="#000000", font=("Helvetica", 9),
+                 relief=tk.RAISED, bd=2, cursor="hand2",
+                 highlightbackground="#707070", activebackground="#909090",
+                 activeforeground="#000000").pack(side=tk.LEFT, padx=2)
+
+        tk.Button(btn_row, text="反选", command=self._invert_column_selection,
+                 bg="#707070", fg="#000000", font=("Helvetica", 9),
+                 relief=tk.RAISED, bd=2, cursor="hand2",
+                 highlightbackground="#707070", activebackground="#909090",
+                 activeforeground="#000000").pack(side=tk.LEFT, padx=2)
+
+        self.selected_count_label = tk.Label(btn_row, text="已选择删除: 0 列",
+                                            fg="#FFFFFF", bg="#1a1a1a",
+                                            font=("Helvetica", 10))
+        self.selected_count_label.pack(side=tk.RIGHT, padx=10)
+
+        # 可滚动列列表区
+        list_container = tk.Frame(column_frame, bg="#1a1a1a")
+        list_container.pack(fill=tk.BOTH, expand=False, padx=5, pady=5)
+
+        # 创建Canvas和Scrollbar
+        canvas = tk.Canvas(list_container, height=150, bg="#1e1e1e", highlightthickness=0)
+        scrollbar = tk.Scrollbar(list_container, command=canvas.yview)
+        self.column_selection_frame = tk.Frame(canvas, bg="#1e1e1e")
+
+        # 配置canvas
+        canvas_window = canvas.create_window((0, 0), window=self.column_selection_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # 绑定滚动事件
+        def _on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+
+        self.column_selection_frame.bind("<Configure>", _on_frame_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        # 布局
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 初始提示
+        tk.Label(self.column_selection_frame,
+                text="请先添加文件",
+                fg="#888888", bg="#1e1e1e",
+                font=("Helvetica", 10)).pack(pady=20)
+
         # 进度条区
         prog_frame = tk.Frame(self.root, bg="#1a1a1a")
         prog_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -201,16 +273,26 @@ class ExcelMergerGUI:
                 self.listbox.insert(tk.END, os.path.basename(f))
         self.status_text.set(f"已添加 {len(files)} 个文件")
 
+        # 扫描列名
+        self._scan_all_columns()
+
     def remove_selected(self):
         for i in reversed(self.listbox.curselection()):
             self.listbox.delete(i)
             self.file_paths.pop(i)
         self.status_text.set("已删除选中文件")
 
+        # 重新扫描列名
+        self._scan_all_columns()
+
     def clear_all(self):
         self.file_paths.clear()
         self.listbox.delete(0, tk.END)
         self.status_text.set("文件列表已清空")
+
+        # 清空列选择
+        self.excluded_columns.clear()
+        self._scan_all_columns()
 
     # ======================================================
     # 文件预览
@@ -309,6 +391,22 @@ class ExcelMergerGUI:
                     filename_without_ext = os.path.splitext(os.path.basename(f))[0]
                     df.insert(0, "来源文件", filename_without_ext)
                     df.insert(1, "工作表", name)
+
+                    # 应用列删除过滤
+                    if self.excluded_columns:
+                        current_cols = list(df.columns)
+                        # 过滤掉用户选择删除的列
+                        cols_to_keep = [c for c in current_cols if str(c) not in self.excluded_columns]
+
+                        # 确保元数据列始终保留
+                        for meta_col in ["来源文件", "工作表"]:
+                            if meta_col not in cols_to_keep and meta_col in current_cols:
+                                cols_to_keep.insert(0 if meta_col == "来源文件" else 1, meta_col)
+
+                        # 应用过滤
+                        if len(cols_to_keep) < len(current_cols):
+                            df = df[cols_to_keep]
+
                     all_dfs.append(df)
 
                     # 记录统计信息
@@ -326,6 +424,16 @@ class ExcelMergerGUI:
         # 显示列名映射报告
         if total_mapping_report:
             self._show_mapping_report(total_mapping_report)
+
+        # 显示列删除信息
+        if self.excluded_columns:
+            self.log("=" * 50)
+            self.log("🗑️  列删除信息")
+            self.log("=" * 50)
+            self.log(f"将删除以下 {len(self.excluded_columns)} 列：")
+            for col in sorted(self.excluded_columns):
+                self.log(f"  • {col}")
+            self.log("=" * 50)
 
         # 第二阶段：合并数据
         self.status_text.set("正在合并数据...")
@@ -521,6 +629,155 @@ class ExcelMergerGUI:
             self.log("  ✅ 无空值")
 
         self.log("=" * 50)
+
+    # ======================================================
+    # 新增功能：列选择相关方法
+    # ======================================================
+    def _scan_all_columns(self):
+        """扫描所有已添加文件的列名"""
+        self.all_columns_info = {}
+
+        if not self.file_paths:
+            self._update_column_selection_ui()
+            return
+
+        try:
+            for filepath in self.file_paths:
+                sheets = read_file(filepath)
+                for sheet_name, df in sheets.items():
+                    for col in df.columns:
+                        col_str = str(col)
+                        if col_str not in self.all_columns_info:
+                            self.all_columns_info[col_str] = {
+                                'mapped': self._get_mapped_name(col_str),
+                                'sources': []
+                            }
+                        source = os.path.basename(filepath)
+                        if source not in self.all_columns_info[col_str]['sources']:
+                            self.all_columns_info[col_str]['sources'].append(source)
+        except Exception as e:
+            self.log(f"⚠️  列扫描失败: {e}")
+
+        self._update_column_selection_ui()
+
+    def _get_mapped_name(self, col_name):
+        """获取列名的映射结果"""
+        if not self.normalize_columns.get():
+            return col_name
+
+        from .merger import normalize_text
+        norm = normalize_text(col_name)
+
+        # 检查是否直接是标准名
+        mappings = self.config_manager.get_mappings()
+        for std_name in mappings.keys():
+            if normalize_text(std_name) == norm:
+                return std_name
+
+        # 检查别名映射
+        for std_name, aliases in mappings.items():
+            for alias in aliases:
+                if normalize_text(alias) == norm:
+                    return std_name
+
+        return col_name
+
+    def _update_column_selection_ui(self):
+        """更新列选择UI"""
+        # 清空现有组件
+        for widget in self.column_selection_frame.winfo_children():
+            widget.destroy()
+        self.column_checkbuttons = []
+
+        if not self.all_columns_info:
+            tk.Label(self.column_selection_frame,
+                    text="请先添加文件",
+                    fg="#888888", bg="#1e1e1e",
+                    font=("Helvetica", 10)).pack(pady=20)
+            self._update_selected_count()
+            return
+
+        # 按列名排序
+        sorted_columns = sorted(self.all_columns_info.items())
+
+        for col_name, info in sorted_columns:
+            var = tk.BooleanVar(value=col_name in self.excluded_columns)
+
+            # 创建行容器
+            frame = tk.Frame(self.column_selection_frame, bg="#1e1e1e")
+            frame.pack(fill=tk.X, padx=5, pady=2)
+
+            # 复选框
+            cb = tk.Checkbutton(
+                frame,
+                variable=var,
+                bg="#1e1e1e", fg="#FFFFFF",
+                selectcolor="#404040",
+                activebackground="#1e1e1e",
+                activeforeground="#FFFFFF",
+                command=lambda cn=col_name, v=var: self._on_column_toggle(cn, v)
+            )
+            cb.pack(side=tk.LEFT)
+
+            # 显示文本
+            mapped = info['mapped']
+            sources = ', '.join(info['sources'][:3])
+            if len(info['sources']) > 3:
+                sources += f" (+{len(info['sources'])-3})"
+
+            if col_name == mapped:
+                label_text = f"{col_name} (来自: {sources})"
+            else:
+                label_text = f"{col_name} → {mapped} (来自: {sources})"
+
+            label = tk.Label(frame, text=label_text,
+                           fg="#FFFFFF", bg="#1e1e1e",
+                           font=("Consolas", 9),
+                           anchor="w")
+            label.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+            self.column_checkbuttons.append((col_name, var, cb))
+
+        self._update_selected_count()
+
+    def _on_column_toggle(self, col_name, var):
+        """列选择状态改变时的回调"""
+        if var.get():
+            self.excluded_columns.add(col_name)
+        else:
+            self.excluded_columns.discard(col_name)
+        self._update_selected_count()
+
+    def _update_selected_count(self):
+        """更新已选择删除的列数显示"""
+        count = len(self.excluded_columns)
+        if self.selected_count_label:
+            self.selected_count_label.config(text=f"已选择删除: {count} 列")
+
+    def _select_all_columns(self):
+        """全选所有列"""
+        for col_name, var, cb in self.column_checkbuttons:
+            var.set(True)
+            self.excluded_columns.add(col_name)
+        self._update_selected_count()
+
+    def _deselect_all_columns(self):
+        """取消全选"""
+        for col_name, var, cb in self.column_checkbuttons:
+            var.set(False)
+        self.excluded_columns.clear()
+        self._update_selected_count()
+
+    def _invert_column_selection(self):
+        """反选"""
+        for col_name, var, cb in self.column_checkbuttons:
+            new_state = not var.get()
+            var.set(new_state)
+            if new_state:
+                self.excluded_columns.add(col_name)
+            else:
+                self.excluded_columns.discard(col_name)
+        self._update_selected_count()
 
     # ======================================================
     def run(self):

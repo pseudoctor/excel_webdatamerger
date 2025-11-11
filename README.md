@@ -18,6 +18,7 @@ A powerful Excel/CSV/TXT file merging tool with intelligent column mapping, data
 - **Auto-detection**: Multiple worksheets and encoding (UTF-8, GBK, Latin1, etc.)
 - **Vertical Stacking**: Concatenate files vertically
 - **Source Tracking**: Automatic source file and worksheet columns
+- **Column Selection**: Select which columns to exclude from merged output
 - **Dark Mode UI**: Optimized for modern interfaces
 
 ---
@@ -92,20 +93,26 @@ chmod +x run_mac_linux.sh
    - Supports multiple selection
    - Supports Excel (.xlsx, .xls), CSV (.csv), TXT (.txt) formats
 
-2. **Configure Options**
+2. **Select Columns (Optional)**
+
+   - Review all columns in the "Column Selection" panel
+   - Check boxes next to columns you want to exclude from the merge
+   - Use "Select All", "Deselect All", or "Invert" buttons for quick selection
+
+3. **Configure Options**
 
    - Check "Normalize Column Names": Use mapping rules to unify column names
    - Check "Enable Fuzzy Matching": Allow partial matches (e.g., "Brand Model" matches "Brand")
    - Check "Remove Duplicates": Delete completely identical rows
    - Check "Smart Deduplication": Deduplicate based on key fields
 
-3. **Start Merging**
+4. **Start Merging**
 
    - Click "Start Merge" button
    - Select save location
    - Wait for completion
 
-4. **View Results**
+5. **View Results**
    - Program automatically opens output directory
    - Check log panel for detailed processing information
 
@@ -155,7 +162,29 @@ Deduplication Key Fields: Product Barcode,Order Date
 
 This removes records with identical product barcode AND order date.
 
-##### 3. Fuzzy Matching
+##### 3. Column Selection
+
+**Purpose:**
+
+- Remove unwanted columns before merging
+- Reduce file size by excluding unnecessary data
+- Clean up the output by removing columns you don't need
+
+**How to use:**
+
+1. Add files to the merger
+2. In the "Column Selection" panel, you'll see all unique columns from your files
+3. Check the boxes next to columns you want to **delete** (note: checked = delete)
+4. Use quick actions:
+   - "全选" (Select All): Mark all columns for deletion
+   - "全不选" (Deselect All): Keep all columns
+   - "反选" (Invert): Toggle selection
+5. The display shows: `Original Column Name → Mapped Name`
+6. Protected columns ("来源文件", "工作表") cannot be deleted
+
+**Note:** Column filtering is applied before merging, so excluded columns won't appear in the output file.
+
+##### 4. Fuzzy Matching
 
 **When to use?**
 
@@ -168,7 +197,7 @@ This removes records with identical product barcode AND order date.
 - Recommend testing without it first, check column mapping report before enabling
 - Use longer keywords to reduce false matches
 
-##### 4. View Reports
+##### 5. View Reports
 
 Two reports are generated during merging:
 
@@ -417,6 +446,7 @@ If you find this project useful, please consider giving it a star!
 - **自动识别**：多工作表自动识别、自动编码检测（UTF-8, GBK, Latin1 等）
 - **纵向堆叠**：纵向堆叠合并
 - **来源追溯**：来源文件追溯
+- **列选择功能**：可选择要从合并结果中排除的列
 - **深色模式**：深色模式界面
 
 ---
@@ -491,20 +521,26 @@ chmod +x run_mac_linux.sh
    - 支持多选，可以一次添加多个文件
    - 支持 Excel (.xlsx, .xls), CSV (.csv), TXT (.txt) 格式
 
-2. **配置选项**
+2. **选择列（可选）**
+
+   - 在"列选择（勾选要删除的列）"面板中查看所有列
+   - 勾选要从合并结果中排除的列
+   - 使用"全选"、"全不选"或"反选"按钮快速选择
+
+3. **配置选项**
 
    - 勾选"统一列名"：使用映射规则统一列名
    - 勾选"启用模糊匹配"：允许部分匹配（例如"品牌型号"匹配"品牌"）
    - 勾选"删除重复行"：删除完全相同的行
    - 勾选"智能去重"：基于关键字段去重
 
-3. **开始合并**
+4. **开始合并**
 
    - 点击"开始合并"按钮
    - 选择保存位置
    - 等待合并完成
 
-4. **查看结果**
+5. **查看结果**
    - 程序会自动打开输出文件所在目录
    - 查看日志面板了解详细处理信息
 
@@ -554,7 +590,29 @@ chmod +x run_mac_linux.sh
 
 这将删除商品条码和订单日期都相同的重复记录。
 
-##### 3. 模糊匹配
+##### 3. 列选择
+
+**功能说明：**
+
+- 在合并前删除不需要的列
+- 通过排除不必要的数据来减小文件大小
+- 清理输出文件，只保留需要的列
+
+**使用方法：**
+
+1. 添加文件到合并列表
+2. 在"列选择（勾选要删除的列）"面板中，会显示所有文件中的唯一列名
+3. 勾选要**删除**的列（注意：勾选 = 删除）
+4. 使用快捷操作：
+   - "全选"：标记所有列为删除
+   - "全不选"：保留所有列
+   - "反选"：切换选择状态
+5. 显示格式为：`原始列名 → 映射后列名`
+6. 受保护的列（"来源文件"、"工作表"）无法被删除
+
+**注意：** 列过滤在合并前应用，因此被排除的列不会出现在输出文件中。
+
+##### 4. 模糊匹配
 
 **什么时候使用？**
 
@@ -567,7 +625,7 @@ chmod +x run_mac_linux.sh
 - 建议先不勾选，查看列名映射报告后再决定是否启用
 - 使用长关键词可以减少误判
 
-##### 4. 查看报告
+##### 5. 查看报告
 
 合并过程中会生成两个报告：
 

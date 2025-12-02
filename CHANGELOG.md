@@ -1,10 +1,10 @@
 # 更新日志
 
-## v1.0 (2025-11-06)
+## v0.1.0 (2025-11-06)
 
 ### 初始发布
 
-**excel_datamerger** - Excel/CSV/TXT 数据合并工具
+**excel_webdatamerger** - Excel/CSV/TXT 数据合并工具
 
 ### 核心功能
 

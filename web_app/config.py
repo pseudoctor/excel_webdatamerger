@@ -1,4 +1,4 @@
-"""Web app configuration for excel_datamerger."""
+"""Web app configuration for excel_webdatamerger."""
 import os
 from pathlib import Path
 
@@ -15,7 +15,7 @@ class WebConfig:
 
     # Upload and output settings
     UPLOAD_ROOT: Path = Path(
-        os.getenv("MERGER_UPLOAD_ROOT", "/tmp/excel_datamerger")
+        os.getenv("MERGER_UPLOAD_ROOT", "/tmp/excel_webdatamerger")
     )
     ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".txt"}
     MAX_CONTENT_LENGTH: int = int(

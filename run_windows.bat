@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-echo 🚀 正在启动 excel_datamerger v1.0 ...
+echo 🚀 正在启动 excel_webdatamerger v0.1.0 ...
 echo ---------------------------------------
 
 REM 切换到脚本所在目录

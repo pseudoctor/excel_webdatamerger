@@ -1,4 +1,4 @@
-# excel_datamerger v1.0
+# excel_webdatamerger v0.1.0
 
 [English](#english) | [中文](#中文)
 
@@ -103,7 +103,7 @@ Optional environment variables:
 
 - `MERGER_USERNAME` / `MERGER_PASSWORD` — login credentials
 - `MERGER_SECRET_KEY` — Flask session secret
-- `MERGER_UPLOAD_ROOT` — temp/output directory (default `/tmp/excel_datamerger`)
+- `MERGER_UPLOAD_ROOT` — temp/output directory (default `/tmp/excel_webdatamerger`)
 - `MERGER_MAX_CONTENT_MB` — max upload payload size (default 50)
 
 APIs and pages:
@@ -258,7 +258,7 @@ Null Values:
 ### File Structure
 
 ```
-excel_datamerger/
+excel_webdatamerger/
 ├── main.py                    # Program entry point
 ├── requirements.txt           # Dependencies
 ├── run_mac_linux.sh          # Startup script (Unix)
@@ -469,7 +469,7 @@ If you find this project useful, please consider giving it a star!
 
 一个功能强大的 Excel/CSV/TXT 文件合并工具，支持智能列名映射、数据质量检查、智能去重等高级功能。
 
-![](https://webpic.solo-digitalpass.eu.org/20251106/excel_datamerger.png)
+![](https://webpic.solo-digitalpass.eu.org/20251106/excel_webdatamerger.png)
 
 ### 主要特性
 
@@ -562,7 +562,7 @@ gunicorn -b 0.0.0.0:8000 web_app.app:app
 
 - `MERGER_USERNAME` / `MERGER_PASSWORD`：登录账号密码
 - `MERGER_SECRET_KEY`：Flask session 密钥
-- `MERGER_UPLOAD_ROOT`：上传与输出目录（默认 `/tmp/excel_datamerger`）
+- `MERGER_UPLOAD_ROOT`：上传与输出目录（默认 `/tmp/excel_webdatamerger`）
 - `MERGER_MAX_CONTENT_MB`：上传大小限制（默认 50MB）
 
 页面与接口：
@@ -717,7 +717,7 @@ gunicorn -b 0.0.0.0:8000 web_app.app:app
 ### 文件结构
 
 ```
-excel_datamerger/
+excel_webdatamerger/
 ├── main.py                    # 程序入口
 ├── requirements.txt           # 依赖列表
 ├── run_mac_linux.sh          # 启动脚本（Unix）

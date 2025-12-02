@@ -1,4 +1,4 @@
-"""Flask web entrypoint for excel_datamerger."""
+"""Flask web entrypoint for excel_webdatamerger."""
 import os
 import shutil
 import traceback

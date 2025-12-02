@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**excel_datamerger** is a desktop GUI application for merging multiple Excel/CSV/TXT files with intelligent column name mapping, data quality checking, and smart deduplication features.
+**excel_webdatamerger** is a desktop GUI application for merging multiple Excel/CSV/TXT files with intelligent column name mapping, data quality checking, and smart deduplication features.
 
 **Tech Stack:**
 - Python 3.9+ with tkinter for GUI

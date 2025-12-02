@@ -1,5 +1,5 @@
 """
-excel_datamerger GUI界面 v1.0
+excel_webdatamerger GUI界面 v0.1.0
 功能：
 - 列名映射配置管理
 - 数据质量报告
@@ -25,11 +25,11 @@ from .merger import ExcelMergerCore
 logger = setup_logger("ExcelMergerGUI")
 
 class ExcelMergerGUI:
-    """excel_datamerger v1.0"""
+    """excel_webdatamerger v0.1.0"""
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("excel_datamerger v1.0")
+        self.root.title("excel_webdatamerger v0.1.0")
         self.root.geometry("1000x800")
         self.root.minsize(950, 750)
 

@@ -1,4 +1,4 @@
-"""Web app package for excel_datamerger."""
+"""Web app package for excel_webdatamerger."""
 
 from .app import create_app
 

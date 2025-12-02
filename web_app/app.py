@@ -19,6 +19,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from excelmerger.config_manager import ConfigManager
 from excelmerger.io_utils import read_file, save_file
@@ -36,6 +37,9 @@ def create_app() -> Flask:
     )
     app.config.from_object(WebConfig)
     app.secret_key = app.config["SECRET_KEY"]
+    # Forwarded HTTPS-aware cookies
+    app.config["SESSION_COOKIE_SECURE"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     logger = setup_logger("ExcelMergerWeb")
 
@@ -467,6 +471,7 @@ def create_app() -> Flask:
 
 
 app = create_app()
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

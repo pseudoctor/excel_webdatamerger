@@ -83,6 +83,37 @@ chmod +x run_mac_linux.sh
 
 ---
 
+### Web Service (Flask)
+
+Run the web version on a VPS or local machine:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+# Development
+python -m web_app.app
+# Production example
+gunicorn -b 0.0.0.0:8000 web_app.app:app
+```
+
+Visit `http://<server-ip>:8000` and log in (default `admin/admin123`, change via env).
+
+Optional environment variables:
+
+- `MERGER_USERNAME` / `MERGER_PASSWORD` — login credentials
+- `MERGER_SECRET_KEY` — Flask session secret
+- `MERGER_UPLOAD_ROOT` — temp/output directory (default `/tmp/excel_datamerger`)
+- `MERGER_MAX_CONTENT_MB` — max upload payload size (default 50)
+
+APIs and pages:
+
+- `GET /login` — login page
+- `POST /merge` — upload files and options (multipart/form-data)
+- `GET /download/<task_id>` — download merged result
+
+---
+
 ### User Guide
 
 #### Basic Workflow
@@ -508,6 +539,37 @@ python3 main.py
 ```bash
 chmod +x run_mac_linux.sh
 ```
+
+---
+
+### Web 版部署（Flask）
+
+在 VPS 或本机运行 Web 版：
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+# 开发启动
+python -m web_app.app
+# 生产示例
+gunicorn -b 0.0.0.0:8000 web_app.app:app
+```
+
+浏览器访问 `http://服务器IP:8000`，默认账号密码 `admin/admin123`（请自行修改）。
+
+可用环境变量：
+
+- `MERGER_USERNAME` / `MERGER_PASSWORD`：登录账号密码
+- `MERGER_SECRET_KEY`：Flask session 密钥
+- `MERGER_UPLOAD_ROOT`：上传与输出目录（默认 `/tmp/excel_datamerger`）
+- `MERGER_MAX_CONTENT_MB`：上传大小限制（默认 50MB）
+
+页面与接口：
+
+- `GET /login`：登录页
+- `POST /merge`：上传文件与合并选项（multipart/form-data）
+- `GET /download/<task_id>`：下载合并结果
 
 ---
 

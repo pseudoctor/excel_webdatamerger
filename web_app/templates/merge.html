@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Excel 数据合并 Web 版</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23122b39'/%3E%3Cpath fill='%2338bdf8' d='M14 18h36v6H14zM14 30h22v6H14zM14 42h18v6H14z'/%3E%3Cpath fill='%2322c55e' d='M42 30h8v18h-8z'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #0b1221;
+      --muted: #8ca3c2;
+      --text: #e2e8f0;
+      --accent: #22c55e;
+      --accent-2: #38bdf8;
+      --border: rgba(255, 255, 255, 0.06);
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Space Grotesk', 'Segoe UI', sans-serif;
+      background: radial-gradient(circle at 10% 20%, rgba(56, 189, 248, 0.15), transparent 30%),
+                  radial-gradient(circle at 80% 0%, rgba(34, 197, 94, 0.18), transparent 32%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .hidden { display: none; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      background: rgba(12, 19, 36, 0.8);
+      z-index: 2;
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0.2px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 12px;
+      background: rgba(34, 197, 94, 0.15);
+      color: #bbf7d0;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 24px auto 80px;
+      padding: 0 18px;
+    }
+    .panel {
+      background: linear-gradient(145deg, #0b1323, #0b1221);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    }
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .panel p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .upload-box {
+      border: 1px dashed rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      padding: 18px;
+      background: rgba(255, 255, 255, 0.02);
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .upload-box input[type="file"] {
+      display: block;
+      color: var(--text);
+    }
+    .file-list {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      min-height: 54px;
+      font-size: 14px;
+    }
+    .options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .option {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .option input {
+      margin-top: 4px;
+      accent-color: var(--accent);
+    }
+    .option span {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .option small {
+      color: var(--muted);
+      display: block;
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+    .field {
+      margin-top: 12px;
+    }
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .field input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #0c1426;
+      color: var(--text);
+      font-size: 15px;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      border: none;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn.primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #0b1221;
+      box-shadow: 0 14px 38px rgba(34, 197, 94, 0.3);
+    }
+    .btn.secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+    .btn:not(:disabled):hover {
+      transform: translateY(-1px);
+    }
+    .status {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      color: #bae6fd;
+      display: none;
+    }
+    .status.error {
+      background: rgba(248, 113, 113, 0.12);
+      border-color: rgba(248, 113, 113, 0.25);
+      color: #fecdd3;
+    }
+    .download {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(34, 197, 94, 0.12);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      color: #bbf7d0;
+      display: none;
+    }
+    .download a {
+      color: #bbf7d0;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 18px;
+    }
+    .meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .pill {
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <h1>Excel 数据合并 Web</h1>
+      <span class="badge">在线上传 · 列名标准化 · 智能去重</span>
+    </div>
+    <div class="meta">
+      <span class="pill">已登录：{{ user }}</span>
+      <a class="pill" href="/logout" style="text-decoration:none;">退出</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <section class="panel">
+      <h2>上传文件</h2>
+      <p>支持 .xlsx / .xls / .csv / .txt，建议单次合并文件数量保持在合理范围。</p>
+      <div class="upload-box">
+        <div style="flex:1;">
+          <input id="files" name="files" type="file" multiple>
+          <small style="color:var(--muted);">选择多个文件后点击“分析文件”查看列与预览</small>
+        </div>
+        <button id="inspect-btn" class="btn secondary" type="button">分析文件</button>
+      </div>
+      <div class="actions" style="margin:10px 0 0; gap:8px;">
+        <button id="files-select-all" class="btn secondary" type="button">全选</button>
+        <button id="files-delete-selected" class="btn secondary" type="button">删除选中</button>
+        <button id="files-clear" class="btn secondary" type="button">清空列表</button>
+      </div>
+      <div id="file-list" class="file-list">尚未选择文件。</div>
+      <div id="preview-area" class="file-list" style="margin-top:8px; max-height:480px; overflow:auto;">预览区：点击“分析文件”后展示前 5 行。</div>
+    </section>
+
+    <section class="panel">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>列名映射配置</h2>
+        <button id="mapping-toggle" class="btn secondary" type="button" style="padding:8px 12px; font-size:14px;">展开/收起</button>
+      </div>
+      <p style="margin-bottom:10px;">与桌面版一致，可编辑 column_mappings.json：键为标准列名，值为别名列表。</p>
+      <div id="mapping-panel" class="hidden">
+        <textarea id="mapping-input" style="width:100%; min-height:200px; border-radius:12px; border:1px solid var(--border); background:#0c1426; color:var(--text); padding:12px; font-family:monospace; font-size:13px;"></textarea>
+        <div class="actions" style="margin-top:10px;">
+          <button id="mapping-save" class="btn secondary" type="button">保存映射配置</button>
+          <div id="mapping-status" style="color:var(--muted); font-size:13px;"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>合并选项</h2>
+      <div class="options">
+        <label class="option">
+          <input type="checkbox" id="normalize" name="normalize" checked>
+          <div>
+            <span>列名标准化</span>
+            <small>使用 column_mappings.json 将别名统一为标准列名。</small>
+          </div>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="fuzzy" name="fuzzy">
+          <div>
+            <span>模糊匹配</span>
+            <small>对列名进行包含式匹配（谨慎使用，避免误判）。</small>
+          </div>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="dedup" name="dedup">
+          <div>
+            <span>删除重复行</span>
+            <small>对全部列执行去重，保留第一条记录。</small>
+          </div>
+        </label>
+        <label class="option">
+          <input type="checkbox" id="smart" name="smart">
+          <div>
+            <span>智能去重</span>
+            <small>基于关键字段组合去重，如 “Product Barcode,Order Date”。</small>
+          </div>
+        </label>
+      </div>
+      <div class="field">
+        <label for="dedup_keys">去重关键字段（逗号分隔）</label>
+        <input id="dedup_keys" type="text" placeholder="如：Product Barcode,Order Date">
+      </div>
+      <div class="field">
+        <label>输出格式</label>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <label class="option" style="flex:0 0 auto; border:none; background:transparent; padding:0;">
+            <input type="radio" name="output_format" value="xlsx" checked>
+            <div>
+              <span>Excel (.xlsx)</span>
+              <small>适合保持格式与公式，默认选项。</small>
+            </div>
+          </label>
+          <label class="option" style="flex:0 0 auto; border:none; background:transparent; padding:0;">
+            <input type="radio" name="output_format" value="csv">
+            <div>
+              <span>CSV (.csv)</span>
+              <small>UTF-8 带 BOM，便于 Excel 直接打开。</small>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="field">
+        <label>列选择（勾选要删除的列）</label>
+        <div id="columns-box" class="file-list" style="max-height:200px; overflow:auto;">请先点击“分析文件”加载列信息。</div>
+        <div class="actions" style="margin-top:8px;">
+          <button id="col-select-all" class="btn secondary" type="button">全选删除</button>
+          <button id="col-unselect-all" class="btn secondary" type="button">全不删</button>
+          <button id="col-invert" class="btn secondary" type="button">反选</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="merge-btn" class="btn primary">开始合并</button>
+        <button id="reset-btn" class="btn secondary" type="button">清空选择</button>
+      </div>
+      <div id="status" class="status"></div>
+      <div id="download" class="download"></div>
+      <div id="log-box" class="file-list" style="margin-top:8px; max-height:160px; overflow:auto;">实时日志将在这里显示</div>
+      <div class="actions" style="margin-top:8px;">
+        <button id="cleanup-logs" class="btn secondary" type="button">清理日志</button>
+        <button id="cleanup-temp" class="btn secondary" type="button">清理临时目录</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>使用提示</h2>
+      <p>合并逻辑复用桌面版：按列名映射统一列，保留所有列，自动添加“来源文件 / 工作表”字段；可选全行去重或关键字段智能去重。</p>
+    </section>
+  </div>
+
+  <footer>建议与 Nginx + HTTPS 搭配使用。默认账号密码请尽快修改。</footer>
+
+  <script src="{{ url_for('static', filename='main.js', v='5') }}"></script>
+</body>
+</html>

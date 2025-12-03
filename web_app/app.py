@@ -37,7 +37,19 @@ def create_app() -> Flask:
     )
     app.config.from_object(WebConfig)
     app.secret_key = app.config["SECRET_KEY"]
+
+    # 关键：让 Flask 正确识别 Nginx 反向代理 + HTTPS
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,
+        x_proto=1,
+        x_host=1,
+        x_port=1,
+        x_prefix=1,
+    )
+
     # Forwarded HTTPS-aware cookies
+    # 已经是全站 HTTPS 了，开启 secure + 合理的 SameSite
     app.config["SESSION_COOKIE_SECURE"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
@@ -79,6 +91,7 @@ def create_app() -> Flask:
                 and password == app.config["PASSWORD"]
             ):
                 session["user"] = username
+                # 如果有 next 参数，可以将来改成跳回 next，这里先简单跳到首页
                 return redirect(url_for("merge_page"))
             error = "用户名或密码错误"
             logger.warning("Login failed for user: %s", username)
@@ -470,8 +483,9 @@ def create_app() -> Flask:
     return app
 
 
+# gunicorn 入口：web_app.app:app
 app = create_app()
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
+

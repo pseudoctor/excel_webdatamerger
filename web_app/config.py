@@ -12,6 +12,14 @@ class WebConfig:
 
     # Flask secret key for session cookies
     SECRET_KEY: str = os.getenv("MERGER_SECRET_KEY", "replace-this-secret")
+    SESSION_COOKIE_SECURE: bool = (
+        os.getenv("MERGER_SESSION_COOKIE_SECURE", "false").lower()
+        in {"1", "true", "yes", "on"}
+    )
+    SESSION_COOKIE_SAMESITE: str = os.getenv(
+        "MERGER_SESSION_COOKIE_SAMESITE",
+        "Lax",
+    )
 
     # Upload and output settings
     UPLOAD_ROOT: Path = Path(

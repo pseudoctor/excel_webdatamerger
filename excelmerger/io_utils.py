@@ -10,19 +10,26 @@ def read_file(file_path):
     """
     ext = os.path.splitext(file_path)[1].lower()
 
-    if ext in [".xlsx", ".xls"]:
-        engines = ["openpyxl", "xlrd"]
+    if ext == ".xlsx":
+        try:
+            return pd.read_excel(file_path, sheet_name=None, engine="openpyxl")
+        except Exception as e:
+            raise RuntimeError(f"Excel 文件读取失败: {file_path} ({e})") from e
+
+    if ext == ".xls":
+        engines = ["xlrd", "openpyxl"]
+        last_error = None
         for engine in engines:
             try:
                 return pd.read_excel(file_path, sheet_name=None, engine=engine)
             except Exception as e:
-                if "File is not a zip file" in str(e) or "not supported" in str(e):
-                    continue
-                else:
-                    raise RuntimeError(f"Excel 文件读取失败: {file_path} ({e})")
-        raise RuntimeError(f"Excel 文件无法识别，请确认格式正确: {file_path}")
+                last_error = e
+        raise RuntimeError(
+            f"Excel 文件读取失败: {file_path} "
+            f"(请确认 .xls 文件未损坏且已安装 xlrd；原始错误: {last_error})"
+        )
 
-    elif ext in [".csv", ".txt"]:
+    if ext in [".csv", ".txt"]:
         encodings = ["utf-8-sig", "utf-8", "gbk", "latin1"]
         for enc in encodings:
             try:
@@ -32,8 +39,7 @@ def read_file(file_path):
                 continue
         raise RuntimeError(f"无法识别 CSV/TXT 文件编码: {file_path}")
 
-    else:
-        raise RuntimeError(f"不支持的文件类型: {file_path}")
+    raise RuntimeError(f"不支持的文件类型: {file_path}")
 
 def save_to_excel(df, output_path):
     """

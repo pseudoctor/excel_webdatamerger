@@ -1,10 +1,12 @@
 """Flask web entrypoint for excel_webdatamerger."""
+import json
 import os
 import shutil
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import uuid4
 import math
 
@@ -37,14 +39,44 @@ def create_app() -> Flask:
     )
     app.config.from_object(WebConfig)
     app.secret_key = app.config["SECRET_KEY"]
-    # Forwarded HTTPS-aware cookies
-    app.config["SESSION_COOKIE_SECURE"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["UPLOAD_ROOT"].mkdir(parents=True, exist_ok=True)
+
+    # 关键：让 Flask 正确识别 Nginx 反向代理 + HTTPS
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,
+        x_proto=1,
+        x_host=1,
+        x_port=1,
+        x_prefix=1,
+    )
 
     logger = setup_logger("ExcelMergerWeb")
+    upload_root: Path = app.config["UPLOAD_ROOT"]
 
-    # In-memory task store: {task_id: {"path": Path, "created_at": datetime}}
-    tasks = {}
+    if app.config["USERNAME"] == "admin" or app.config["PASSWORD"] == "admin123":
+        logger.warning("Using default web credentials is unsafe in production")
+    if app.config["SECRET_KEY"] == "replace-this-secret":
+        logger.warning("Using default Flask SECRET_KEY is unsafe in production")
+
+    def is_safe_next_url(target: str) -> bool:
+        if not target:
+            return False
+        parsed = urlparse(target)
+        return not parsed.netloc and target.startswith("/")
+
+    def purge_expired_tasks() -> None:
+        now = datetime.now(timezone.utc)
+        for job_dir in upload_root.iterdir():
+            if not job_dir.is_dir():
+                continue
+            metadata = load_task_metadata(job_dir.name)
+            created_at = get_task_expiry_reference(job_dir, metadata)
+            if created_at is None:
+                continue
+            age_seconds = (now - created_at).total_seconds()
+            if age_seconds > app.config["CLEANUP_MINUTES"] * 60:
+                cleanup_job_dir(job_dir)
 
     def login_required(func):
         """Simple login-required decorator."""
@@ -68,21 +100,68 @@ def create_app() -> Flask:
         except Exception as cleanup_err:
             logger.warning("Failed to cleanup job dir %s: %s", path, cleanup_err)
 
+    def task_metadata_path(task_id: str) -> Path:
+        return upload_root / task_id / "metadata.json"
+
+    def parse_utc_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            return None
+
+    def load_task_metadata(task_id: str) -> dict | None:
+        metadata_path = task_metadata_path(task_id)
+        if not metadata_path.exists():
+            return None
+        try:
+            with metadata_path.open("r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+                if isinstance(loaded, dict):
+                    return loaded
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to load task metadata for %s: %s", task_id, exc)
+        return None
+
+    def save_task_metadata(task_id: str, payload: dict) -> None:
+        metadata_path = task_metadata_path(task_id)
+        with metadata_path.open("w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+    def get_task_expiry_reference(job_dir: Path, metadata: dict | None) -> datetime | None:
+        """Return the best available UTC timestamp for task cleanup decisions."""
+        created_at = parse_utc_datetime((metadata or {}).get("created_at"))
+        if created_at is not None:
+            return created_at
+        try:
+            return datetime.fromtimestamp(job_dir.stat().st_mtime, tz=timezone.utc)
+        except OSError as exc:
+            logger.warning("Failed to stat job dir %s: %s", job_dir, exc)
+            return None
+
     @app.route("/login", methods=["GET", "POST"])
     def login():
         error = None
+        next_url = request.args.get("next", "")
         if request.method == "POST":
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "").strip()
+            next_url = request.form.get("next", "")
             if (
                 username == app.config["USERNAME"]
                 and password == app.config["PASSWORD"]
             ):
                 session["user"] = username
+                if is_safe_next_url(next_url):
+                    return redirect(next_url)
                 return redirect(url_for("merge_page"))
             error = "用户名或密码错误"
             logger.warning("Login failed for user: %s", username)
-        return render_template("login.html", error=error)
+        return render_template("login.html", error=error, next_url=next_url)
 
     @app.route("/logout")
     def logout():
@@ -91,6 +170,7 @@ def create_app() -> Flask:
 
     @app.before_request
     def enforce_login():
+        purge_expired_tasks()
         # Allow login page and static files without auth
         if request.endpoint in {"login", "static"}:
             return None
@@ -132,7 +212,8 @@ def create_app() -> Flask:
         if output_format not in {"xlsx", "csv"}:
             output_format = "xlsx"
 
-        job_dir = app.config["UPLOAD_ROOT"] / Path(str(uuid4()))
+        task_id = str(uuid4())
+        job_dir = upload_root / task_id
         job_dir.mkdir(parents=True, exist_ok=True)
         saved_paths = []
 
@@ -237,12 +318,14 @@ def create_app() -> Flask:
             output_path = job_dir / f"merged.{output_format}"
             save_file(merged, output_path, file_format=output_format)
 
-            task_id = str(uuid4())
-            tasks[task_id] = {
-                "path": output_path,
-                "created_at": datetime.utcnow(),
-                "format": output_format,
-            }
+            save_task_metadata(
+                task_id,
+                {
+                    "path": output_path.name,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "format": output_format,
+                },
+            )
 
             return jsonify(
                 {
@@ -256,19 +339,22 @@ def create_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             cleanup_job_dir(job_dir)
             logger.error("Merge failed: %s\n%s", exc, traceback.format_exc())
-            return jsonify({"ok": False, "error": str(exc)}), 500
+            status_code = 400 if isinstance(exc, ValueError) else 500
+            return jsonify({"ok": False, "error": str(exc)}), status_code
 
     @app.route("/download/<task_id>")
     @login_required
     def download_result(task_id: str):
-        task = tasks.get(task_id)
-        if not task:
+        metadata = load_task_metadata(task_id)
+        if not metadata:
             return "任务不存在或已过期", 404
-        output_path: Path = task["path"]
+
+        output_path = upload_root / task_id / metadata.get("path", "")
         if not output_path.exists():
+            cleanup_job_dir(upload_root / task_id)
             return "文件不存在", 404
 
-        fmt = task.get("format", "xlsx")
+        fmt = metadata.get("format", "xlsx")
         filename = f"merged_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{fmt}"
         if fmt == "csv":
             mimetype = "text/csv"
@@ -323,6 +409,31 @@ def create_app() -> Flask:
                 errors.append(f"{item}: {exc}")
         return removed, errors
 
+    def cleanup_expired_job_dirs():
+        """Delete only expired task directories to avoid racing active downloads."""
+        removed = 0
+        skipped = 0
+        errors = []
+        now = datetime.now(timezone.utc)
+        for item in upload_root.iterdir():
+            if not item.is_dir():
+                continue
+            metadata = load_task_metadata(item.name)
+            created_at = get_task_expiry_reference(item, metadata)
+            if created_at is None:
+                skipped += 1
+                continue
+            age_seconds = (now - created_at).total_seconds()
+            if age_seconds <= app.config["CLEANUP_MINUTES"] * 60:
+                skipped += 1
+                continue
+            try:
+                shutil.rmtree(item)
+                removed += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{item}: {exc}")
+        return removed, skipped, errors
+
     @app.route("/mapping", methods=["GET", "POST"])
     @login_required
     def mapping_endpoint():
@@ -341,8 +452,9 @@ def create_app() -> Flask:
             for k, v in mappings.items():
                 if not isinstance(v, list):
                     return jsonify({"ok": False, "error": f"映射 {k} 的值必须是列表"}), 400
-                cleaned[k] = v
-            cm.save_mappings(cleaned)
+                cleaned[str(k)] = [str(alias) for alias in v if str(alias).strip()]
+            if not cm.save_mappings(cleaned):
+                return jsonify({"ok": False, "error": "映射保存失败，请检查文件权限"}), 500
             return jsonify({"ok": True})
         except Exception as exc:  # noqa: BLE001
             logger.error("Save mapping failed: %s\n%s", exc, traceback.format_exc())
@@ -356,15 +468,15 @@ def create_app() -> Flask:
         if target == "logs":
             target_path = Path(__file__).resolve().parent.parent / "logs"
             removed, errors = remove_path_contents(target_path, files_only=True)
+            skipped = 0
             logger.info("Cleanup logs removed %s files", removed)
         elif target == "temp":
-            target_path = Path(app.config["UPLOAD_ROOT"])
-            removed, errors = remove_path_contents(target_path, files_only=False)
-            logger.info("Cleanup temp removed %s entries", removed)
+            removed, skipped, errors = cleanup_expired_job_dirs()
+            logger.info("Cleanup temp removed %s entries and skipped %s active entries", removed, skipped)
         else:
             return jsonify({"ok": False, "error": "未知清理目标"}), 400
 
-        return jsonify({"ok": True, "removed": removed, "errors": errors})
+        return jsonify({"ok": True, "removed": removed, "skipped": skipped, "errors": errors})
 
     @app.route("/inspect", methods=["POST"])
     @login_required
@@ -470,8 +582,8 @@ def create_app() -> Flask:
     return app
 
 
+# gunicorn 入口：web_app.app:app
 app = create_app()
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

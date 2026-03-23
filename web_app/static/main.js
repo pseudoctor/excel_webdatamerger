@@ -60,17 +60,37 @@
       refs.statusBox.classList.toggle('error', !!isError);
     };
 
+    const clearNode = (node) => {
+      while (node.firstChild) {
+        node.removeChild(node.firstChild);
+      }
+    };
+
     const renderFiles = () => {
       if (!filesState.length) {
         refs.fileList.textContent = '尚未选择文件。';
         return;
       }
-      refs.fileList.innerHTML = filesState.map(f => {
-        return `<label style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
-          <input type="checkbox" class="file-item" data-id="${f.id}">
-          <span>${f.name} — ${(f.size/1024).toFixed(1)} KB</span>
-        </label>`;
-      }).join('');
+      clearNode(refs.fileList);
+      filesState.forEach((f) => {
+        const label = document.createElement('label');
+        label.style.display = 'flex';
+        label.style.gap = '8px';
+        label.style.alignItems = 'center';
+        label.style.marginBottom = '4px';
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.className = 'file-item';
+        input.dataset.id = String(f.id);
+
+        const span = document.createElement('span');
+        span.textContent = `${f.name} — ${(f.size/1024).toFixed(1)} KB`;
+
+        label.appendChild(input);
+        label.appendChild(span);
+        refs.fileList.appendChild(label);
+      });
       refs.fileList.querySelectorAll('.file-item').forEach(cb => {
         cb.addEventListener('change', () => showPreviewForSelection());
       });
@@ -81,15 +101,32 @@
         refs.columnsBox.textContent = '未获取到列信息。';
         return;
       }
-      refs.columnsBox.innerHTML = columns.map(col => {
-        const disabled = col.is_meta ? 'disabled' : '';
-        const title = (col.sources || []).join(', ');
-        return `<label style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
-          <input type="checkbox" class="col-item" value="${col.name}" ${disabled}>
-          <span>${col.name}</span>
-          <small style="color:var(--muted);">(${title})${col.is_meta ? ' - 保留' : ''}</small>
-        </label>`;
-      }).join('');
+      clearNode(refs.columnsBox);
+      columns.forEach((col) => {
+        const label = document.createElement('label');
+        label.style.display = 'flex';
+        label.style.gap = '8px';
+        label.style.alignItems = 'center';
+        label.style.marginBottom = '6px';
+
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.className = 'col-item';
+        input.value = col.name;
+        input.disabled = !!col.is_meta;
+
+        const span = document.createElement('span');
+        span.textContent = col.name;
+
+        const small = document.createElement('small');
+        small.style.color = 'var(--muted)';
+        small.textContent = `(${(col.sources || []).join(', ')})${col.is_meta ? ' - 保留' : ''}`;
+
+        label.appendChild(input);
+        label.appendChild(span);
+        label.appendChild(small);
+        refs.columnsBox.appendChild(label);
+      });
     };
 
     const renderPreview = (previews) => {
@@ -98,12 +135,27 @@
         refs.previewArea.textContent = '未获取到预览数据。';
         return;
       }
-      refs.previewArea.innerHTML = lastPreviews.map(p => {
+      clearNode(refs.previewArea);
+      lastPreviews.forEach((p) => {
         const rows = p.rows || [];
         const header = (p.columns || []).join(' | ');
-        const body = rows.map(r => Object.values(r).join(' | ')).join(' | ');
-        return `<div style="margin-bottom:12px;"><strong>${p.file} / ${p.sheet}</strong><pre style="margin:6px 0; white-space:pre-wrap;">${header}\n${body}</pre></div>`;
-      }).join('');
+        const body = rows.map(r => Object.values(r).join(' | ')).join('\n');
+
+        const wrapper = document.createElement('div');
+        wrapper.style.marginBottom = '12px';
+
+        const title = document.createElement('strong');
+        title.textContent = `${p.file} / ${p.sheet}`;
+
+        const pre = document.createElement('pre');
+        pre.style.margin = '6px 0';
+        pre.style.whiteSpace = 'pre-wrap';
+        pre.textContent = `${header}\n${body}`;
+
+        wrapper.appendChild(title);
+        wrapper.appendChild(pre);
+        refs.previewArea.appendChild(wrapper);
+      });
     };
 
     const collectExcludedColumns = () => {
@@ -279,8 +331,8 @@
           log(`${label}清理失败`);
           return;
         }
-        setStatus(`${label}清理完成，删除 ${data.removed} 项`);
-        log(`${label}清理完成，删除 ${data.removed} 项`);
+        setStatus(`${label}清理完成，删除 ${data.removed} 项，跳过 ${data.skipped || 0} 项`);
+        log(`${label}清理完成，删除 ${data.removed} 项，跳过 ${data.skipped || 0} 项`);
         if (data.errors && data.errors.length) {
           log(`清理错误: ${data.errors.join('; ')}`);
         }
@@ -332,7 +384,12 @@
           return;
         }
         setStatus('合并成功，点击下载结果。');
-        refs.downloadBox.innerHTML = `<a href="${data.download_url}" target="_blank">下载结果文件</a>`;
+        clearNode(refs.downloadBox);
+        const link = document.createElement('a');
+        link.href = data.download_url;
+        link.target = '_blank';
+        link.textContent = '下载结果文件';
+        refs.downloadBox.appendChild(link);
         refs.downloadBox.style.display = 'block';
         log('合并完成，可下载结果');
       } catch (err) {

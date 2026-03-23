@@ -103,6 +103,7 @@
     <h1>Excel 数据合并</h1>
     <p>登录后上传文件并在线合并（默认账号：admin / admin123）。</p>
     <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next_url or '' }}">
       <label for="username">用户名</label>
       <input id="username" name="username" type="text" placeholder="用户名" autocomplete="username" required>
 

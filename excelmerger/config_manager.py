@@ -3,8 +3,11 @@
 支持用户自定义列名映射规则，并可保存/加载配置
 """
 import json
+import logging
 import os
 from typing import Dict, List
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
@@ -51,7 +54,7 @@ class ConfigManager:
                     if isinstance(loaded, dict):
                         return loaded
             except Exception as e:
-                print(f"加载配置文件失败: {e}，使用默认配置")
+                logger.warning("加载配置文件失败，使用默认配置: %s", e)
 
         # 使用默认配置
         return self.DEFAULT_MAPPINGS.copy()
@@ -74,7 +77,7 @@ class ConfigManager:
                 json.dump(self.mappings, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            print(f"保存配置文件失败: {e}")
+            logger.error("保存配置文件失败: %s", e)
             return False
 
     def add_mapping(self, standard_name: str, aliases: List[str]) -> None:
@@ -163,5 +166,5 @@ class ConfigManager:
                 json.dump(template, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            print(f"导出模板失败: {e}")
+            logger.error("导出模板失败: %s", e)
             return False

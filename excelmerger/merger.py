@@ -201,7 +201,7 @@ class ExcelMergerCore:
             null_percent = (null_count / len(df) * 100) if len(df) > 0 else 0
             report["空值统计"][col] = {
                 "数量": int(null_count),
-                "百分比": round(null_percent, 2)
+                "百分比": round(float(null_percent), 2)
             }
 
         # 重复行统计
@@ -231,10 +231,13 @@ class ExcelMergerCore:
             去重后的数据框
         """
         if key_columns:
-            # 检查关键字段是否存在
-            existing_keys = [k for k in key_columns if k in df.columns]
-            if existing_keys:
-                return df.drop_duplicates(subset=existing_keys, keep=keep)
+            missing_keys = [k for k in key_columns if k not in df.columns]
+            if missing_keys:
+                raise ValueError(
+                    "去重关键字段不存在: "
+                    + ", ".join(missing_keys)
+                )
+            return df.drop_duplicates(subset=key_columns, keep=keep)
 
         # 默认全行去重
         return df.drop_duplicates(keep=keep)
@@ -265,4 +268,3 @@ class ExcelMergerCore:
         stats.append(f"空值率: {null_rate:.2f}%")
 
         return " | ".join(stats)
-

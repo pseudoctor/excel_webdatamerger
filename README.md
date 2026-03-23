@@ -99,6 +99,14 @@ gunicorn -b 0.0.0.0:8000 web_app.app:app
 
 Visit `http://<server-ip>:8000` and log in (default `admin/admin123`, change via env).
 
+Production note for HTTPS / Cloudflare:
+
+- Run Flask/Gunicorn behind Nginx or another reverse proxy
+- If you use Cloudflare and enable `Full (strict)`, the origin server must present a valid certificate
+- A Cloudflare `Error 526: Invalid SSL certificate` means Cloudflare could not validate the certificate on your origin server
+- Typical fixes: install a valid Let's Encrypt certificate on Nginx, or install a Cloudflare Origin Certificate on the origin and configure Nginx to use it
+- Do not expose Flask directly with self-signed HTTPS and expect Cloudflare `Full (strict)` to accept it
+
 Optional environment variables:
 
 - `MERGER_USERNAME` / `MERGER_PASSWORD` — login credentials
@@ -111,6 +119,11 @@ APIs and pages:
 - `GET /login` — login page
 - `POST /merge` — upload files and options (multipart/form-data)
 - `GET /download/<task_id>` — download merged result
+
+Deployment helpers:
+
+- Deployment and server-ops scripts live under `deploy/`
+- See `deploy/README.md` before using `deploy/update.sh` or certificate sync scripts
 
 ---
 
@@ -557,6 +570,14 @@ gunicorn -b 0.0.0.0:8000 web_app.app:app
 ```
 
 浏览器访问 `http://服务器IP:8000`，默认账号密码 `admin/admin123`（请自行修改）。
+
+生产环境 HTTPS / Cloudflare 说明：
+
+- 建议用 Nginx 或其他反向代理放在 Flask/Gunicorn 前面
+- 如果 Cloudflare SSL/TLS 模式是 `Full (strict)`，源站必须提供有效证书
+- `Cloudflare 526: Invalid SSL certificate` 表示 Cloudflare 校验你的源站证书失败
+- 常见修复方式：给 Nginx 安装 Let's Encrypt 证书，或安装 Cloudflare Origin Certificate 并在 Nginx 中正确配置
+- 不要直接把 Flask 的自签名 HTTPS 暴露给 Cloudflare 并期望 `Full (strict)` 通过
 
 可用环境变量：
 

@@ -214,6 +214,68 @@
       font-weight: 700;
       text-decoration: none;
     }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(3, 7, 18, 0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 20;
+    }
+    .modal-backdrop.hidden {
+      display: none;
+    }
+    .modal {
+      width: min(100%, 460px);
+      background: linear-gradient(145deg, #10192d, #0b1221);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+    }
+    .modal h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+    .modal p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .filename-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .filename-row input {
+      flex: 1;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #0c1426;
+      color: var(--text);
+      font-size: 15px;
+    }
+    .filename-ext {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-weight: 600;
+      min-width: 64px;
+      text-align: center;
+    }
+    .modal-status {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      min-height: 20px;
+    }
     footer {
       text-align: center;
       color: var(--muted);
@@ -367,8 +429,26 @@
     </section>
   </div>
 
+  <div id="download-modal" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="download-modal-title">
+      <h3 id="download-modal-title">下载前修改文件名</h3>
+      <p>你可以在下载前修改合并结果文件名。扩展名会按当前输出格式自动补齐。</p>
+      <div class="filename-row">
+        <input id="download-filename" type="text" placeholder="请输入文件名">
+        <span id="download-extension" class="filename-ext">.xlsx</span>
+      </div>
+      <div id="download-status" class="modal-status"></div>
+      <div class="actions">
+        <button id="download-confirm" class="btn secondary" type="button">确定</button>
+        <button id="download-start" class="btn primary" type="button" disabled>下载</button>
+        <button id="download-cancel" class="btn secondary" type="button">取消</button>
+      </div>
+    </div>
+  </div>
+
   <footer>建议与 Nginx + HTTPS 搭配使用。默认账号密码请尽快修改。</footer>
 
-  <script src="{{ url_for('static', filename='main.js', v='5') }}"></script>
+  <script src="{{ url_for('static', filename='download_modal.js', v='1') }}"></script>
+  <script src="{{ url_for('static', filename='main.js', v='9') }}"></script>
 </body>
 </html>

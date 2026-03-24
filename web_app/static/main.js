@@ -8,6 +8,24 @@
   };
 
   ready(() => {
+    const modalHelpers = window.DownloadModalHelpers || {
+      buildInitialState: () => ({
+        confirmedFilename: '',
+        canDownload: false,
+        statusText: '请先输入文件名，再点击“确定”。',
+      }),
+      buildConfirmedState: (filename, extension) => ({
+        confirmedFilename: filename,
+        canDownload: true,
+        statusText: `已确认文件名：${filename}${extension}`,
+      }),
+      buildEditedState: (inputValue) => ({
+        confirmedFilename: '',
+        canDownload: false,
+        statusText: inputValue.trim() ? '文件名已变更，请重新点击“确定”。' : '文件名不能为空。',
+      }),
+    };
+
     const refs = {
       fileInput: document.getElementById('files'),
       fileList: document.getElementById('file-list'),
@@ -32,6 +50,13 @@
       cleanupLogs: document.getElementById('cleanup-logs'),
       cleanupTemp: document.getElementById('cleanup-temp'),
       logBox: document.getElementById('log-box'),
+      downloadModal: document.getElementById('download-modal'),
+      downloadFilenameInput: document.getElementById('download-filename'),
+      downloadExtension: document.getElementById('download-extension'),
+      downloadConfirmBtn: document.getElementById('download-confirm'),
+      downloadStartBtn: document.getElementById('download-start'),
+      downloadCancelBtn: document.getElementById('download-cancel'),
+      downloadStatus: document.getElementById('download-status'),
     };
 
     if (!refs.fileInput || !refs.fileList || !refs.inspectBtn) {
@@ -43,6 +68,9 @@
     let fileId = 1;
     let lastPreviews = [];
     let mappingLoaded = false;
+    let pendingDownload = null;
+    let confirmedDownloadFilename = '';
+    let mergePollTimer = null;
 
     const log = (msg) => {
       console.log(msg);
@@ -63,6 +91,144 @@
     const clearNode = (node) => {
       while (node.firstChild) {
         node.removeChild(node.firstChild);
+      }
+    };
+
+    const getOutputFormat = () => {
+      return document.querySelector('input[name="output_format"]:checked')?.value || 'xlsx';
+    };
+
+    const stopMergePolling = () => {
+      if (mergePollTimer) {
+        window.clearTimeout(mergePollTimer);
+        mergePollTimer = null;
+      }
+    };
+
+    const closeDownloadModal = () => {
+      if (!refs.downloadModal) return;
+      refs.downloadModal.classList.add('hidden');
+      pendingDownload = null;
+      confirmedDownloadFilename = '';
+      if (refs.downloadStartBtn) refs.downloadStartBtn.disabled = true;
+      if (refs.downloadStatus) refs.downloadStatus.textContent = '';
+    };
+
+    const openDownloadModal = (downloadUrl, suggestedFilename, format) => {
+      if (!refs.downloadModal || !refs.downloadFilenameInput || !refs.downloadExtension) {
+        window.open(downloadUrl, '_blank', 'noopener');
+        return;
+      }
+      pendingDownload = { downloadUrl, format };
+      confirmedDownloadFilename = '';
+      refs.downloadFilenameInput.value = suggestedFilename || 'merged';
+      refs.downloadExtension.textContent = `.${format}`;
+      const initialState = modalHelpers.buildInitialState();
+      if (refs.downloadStartBtn) refs.downloadStartBtn.disabled = !initialState.canDownload;
+      if (refs.downloadStatus) refs.downloadStatus.textContent = initialState.statusText;
+      refs.downloadModal.classList.remove('hidden');
+      refs.downloadFilenameInput.focus();
+      refs.downloadFilenameInput.select();
+    };
+
+    const confirmDownloadFilename = () => {
+      if (!pendingDownload) return;
+      const filename = refs.downloadFilenameInput?.value?.trim() || '';
+      if (!filename) {
+        if (refs.downloadStatus) refs.downloadStatus.textContent = '文件名不能为空。';
+        refs.downloadFilenameInput?.focus();
+        return;
+      }
+      const confirmedState = modalHelpers.buildConfirmedState(
+        filename,
+        refs.downloadExtension?.textContent || '',
+      );
+      confirmedDownloadFilename = confirmedState.confirmedFilename;
+      if (refs.downloadStartBtn) refs.downloadStartBtn.disabled = !confirmedState.canDownload;
+      if (refs.downloadStatus) {
+        refs.downloadStatus.textContent = confirmedState.statusText;
+      }
+      log(`已确认下载文件名：${confirmedDownloadFilename}${refs.downloadExtension?.textContent || ''}`);
+    };
+
+    const triggerDownload = () => {
+      if (!pendingDownload) return;
+      const filename = confirmedDownloadFilename || refs.downloadFilenameInput?.value?.trim() || '';
+      if (!filename) {
+        if (refs.downloadStatus) refs.downloadStatus.textContent = '请先输入并确认文件名。';
+        refs.downloadFilenameInput?.focus();
+        return;
+      }
+      const url = new URL(pendingDownload.downloadUrl, window.location.origin);
+      if (filename) {
+        url.searchParams.set('filename', filename);
+      }
+      const link = document.createElement('a');
+      link.href = url.toString();
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      log(`开始下载：${filename || '默认文件名'}${refs.downloadExtension?.textContent || ''}`);
+      closeDownloadModal();
+    };
+
+    const renderDownloadButton = (downloadUrl, suggestedFilename, format) => {
+      clearNode(refs.downloadBox);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn secondary';
+      button.textContent = '下载结果文件';
+      button.addEventListener('click', () => {
+        openDownloadModal(
+          downloadUrl,
+          suggestedFilename || 'merged',
+          format || getOutputFormat(),
+        );
+      });
+      refs.downloadBox.appendChild(button);
+      refs.downloadBox.style.display = 'block';
+    };
+
+    const pollMergeStatus = async (taskId, statusUrl, fallbackFormat) => {
+      stopMergePolling();
+      try {
+        const res = await fetch(statusUrl, { credentials: 'same-origin' });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          refs.mergeBtn.disabled = false;
+          setStatus(data.error || `任务查询失败（${res.status}）`, true);
+          log(`合并失败：${data.error || `状态查询 HTTP ${res.status}`}`);
+          return;
+        }
+
+        if (data.status === 'queued' || data.status === 'running') {
+          setStatus('后台正在合并，请稍候...');
+          log(`任务处理中：${data.status}`);
+          mergePollTimer = window.setTimeout(() => {
+            pollMergeStatus(taskId, statusUrl, fallbackFormat);
+          }, 2000);
+          return;
+        }
+
+        refs.mergeBtn.disabled = false;
+        if (data.status === 'completed') {
+          setStatus('合并成功，点击下载结果。');
+          renderDownloadButton(
+            data.download_url,
+            data.suggested_filename,
+            data.format || fallbackFormat,
+          );
+          log('合并完成，可下载结果');
+          return;
+        }
+
+        setStatus(data.error || '合并失败', true);
+        log(`合并失败：${data.error || data.status || '未知错误'}`);
+      } catch (err) {
+        refs.mergeBtn.disabled = false;
+        setStatus('合并状态查询失败，请稍后重试。', true);
+        log('合并状态查询失败');
       }
     };
 
@@ -210,6 +376,8 @@
       renderFiles();
       refs.statusBox.style.display = 'none';
       refs.downloadBox.style.display = 'none';
+      closeDownloadModal();
+      stopMergePolling();
       document.getElementById('dedup_keys').value = '';
       document.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = cb.id === 'normalize');
       refs.columnsBox.innerHTML = '请先点击“分析文件”加载列信息。';
@@ -344,6 +512,32 @@
 
     refs.cleanupLogs?.addEventListener('click', () => cleanupAction('logs', '日志'));
     refs.cleanupTemp?.addEventListener('click', () => cleanupAction('temp', '临时目录'));
+    refs.downloadCancelBtn?.addEventListener('click', closeDownloadModal);
+    refs.downloadConfirmBtn?.addEventListener('click', confirmDownloadFilename);
+    refs.downloadStartBtn?.addEventListener('click', triggerDownload);
+    refs.downloadModal?.addEventListener('click', (event) => {
+      if (event.target === refs.downloadModal) {
+        closeDownloadModal();
+      }
+    });
+    refs.downloadFilenameInput?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        confirmDownloadFilename();
+      } else if (event.key === 'Escape') {
+        closeDownloadModal();
+      }
+    });
+    refs.downloadFilenameInput?.addEventListener('input', (event) => {
+      const nextValue = event.target?.value || '';
+      if (!confirmedDownloadFilename && !nextValue.trim()) {
+        return;
+      }
+      const editedState = modalHelpers.buildEditedState(nextValue);
+      confirmedDownloadFilename = editedState.confirmedFilename;
+      if (refs.downloadStartBtn) refs.downloadStartBtn.disabled = !editedState.canDownload;
+      if (refs.downloadStatus) refs.downloadStatus.textContent = editedState.statusText;
+    });
 
     refs.mergeBtn.addEventListener('click', async () => {
       const files = [...filesState];
@@ -362,11 +556,12 @@
       formData.append('dedup_keys', dedupKeys);
       const excluded = collectExcludedColumns();
       formData.append('exclude_columns', excluded.join(','));
-      const fmt = document.querySelector('input[name="output_format"]:checked')?.value || 'xlsx';
+      const fmt = getOutputFormat();
       formData.append('output_format', fmt);
 
       setStatus('正在合并，请稍候...');
       refs.downloadBox.style.display = 'none';
+      stopMergePolling();
       refs.mergeBtn.disabled = true;
       log('开始合并');
 
@@ -377,21 +572,15 @@
           credentials: 'same-origin'
         });
         const data = await res.json();
-        refs.mergeBtn.disabled = false;
         if (!data.ok) {
+          refs.mergeBtn.disabled = false;
           setStatus(data.error || '合并失败', true);
           log(`合并失败：${data.error || '未知错误'}`);
           return;
         }
-        setStatus('合并成功，点击下载结果。');
-        clearNode(refs.downloadBox);
-        const link = document.createElement('a');
-        link.href = data.download_url;
-        link.target = '_blank';
-        link.textContent = '下载结果文件';
-        refs.downloadBox.appendChild(link);
-        refs.downloadBox.style.display = 'block';
-        log('合并完成，可下载结果');
+        setStatus('文件已上传，后台正在合并...');
+        log(`合并任务已创建：${data.task_id}`);
+        pollMergeStatus(data.task_id, data.status_url, fmt);
       } catch (err) {
         refs.mergeBtn.disabled = false;
         setStatus('请求失败，请稍后重试。', true);
@@ -400,6 +589,8 @@
     });
 
     renderFiles();
+    refs.downloadBox.style.display = 'none';
+    closeDownloadModal();
     log('main.js init 完成');
   });
 })();

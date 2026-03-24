@@ -1,7 +1,10 @@
 """Flask web entrypoint for excel_webdatamerger."""
+from concurrent.futures import ThreadPoolExecutor
 import json
+import re
 import os
 import shutil
+import threading
 import traceback
 from datetime import datetime, timezone
 from functools import wraps
@@ -53,6 +56,8 @@ def create_app() -> Flask:
 
     logger = setup_logger("ExcelMergerWeb")
     upload_root: Path = app.config["UPLOAD_ROOT"]
+    metadata_lock = threading.Lock()
+    merge_executor = ThreadPoolExecutor(max_workers=2)
 
     if app.config["USERNAME"] == "admin" or app.config["PASSWORD"] == "admin123":
         logger.warning("Using default web credentials is unsafe in production")
@@ -119,18 +124,28 @@ def create_app() -> Flask:
         if not metadata_path.exists():
             return None
         try:
-            with metadata_path.open("r", encoding="utf-8") as fh:
-                loaded = json.load(fh)
-                if isinstance(loaded, dict):
-                    return loaded
+            with metadata_lock:
+                with metadata_path.open("r", encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                    if isinstance(loaded, dict):
+                        return loaded
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Failed to load task metadata for %s: %s", task_id, exc)
         return None
 
     def save_task_metadata(task_id: str, payload: dict) -> None:
         metadata_path = task_metadata_path(task_id)
-        with metadata_path.open("w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
+        with metadata_lock:
+            with metadata_path.open("w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+    def update_task_metadata(task_id: str, **updates) -> dict | None:
+        metadata = load_task_metadata(task_id)
+        if metadata is None:
+            return None
+        metadata.update(updates)
+        save_task_metadata(task_id, metadata)
+        return metadata
 
     def get_task_expiry_reference(job_dir: Path, metadata: dict | None) -> datetime | None:
         """Return the best available UTC timestamp for task cleanup decisions."""
@@ -142,6 +157,154 @@ def create_app() -> Flask:
         except OSError as exc:
             logger.warning("Failed to stat job dir %s: %s", job_dir, exc)
             return None
+
+    def build_default_download_stem() -> str:
+        return f"merged_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    def sanitize_download_name(raw_name: str, fmt: str) -> str:
+        cleaned = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]+', "_", raw_name or "")
+        cleaned = cleaned.strip().strip(".")
+        if not cleaned:
+            return f"{build_default_download_stem()}.{fmt}"
+        normalized = cleaned.lower()
+        known_suffixes = {".csv", ".xlsx", ".xls", ".txt"}
+        matched_suffix = next(
+            (suffix for suffix in known_suffixes if normalized.endswith(suffix)),
+            "",
+        )
+        if matched_suffix:
+            stem = cleaned[: -len(matched_suffix)]
+        else:
+            stem = cleaned
+        stem = stem.strip().strip("._- ")
+        if not stem:
+            return f"{build_default_download_stem()}.{fmt}"
+        return f"{stem}.{fmt}"
+
+    def build_task_status_payload(task_id: str) -> tuple[dict, int]:
+        metadata = load_task_metadata(task_id)
+        if not metadata:
+            return {"ok": False, "error": "任务不存在或已过期"}, 404
+
+        status = metadata.get("status", "unknown")
+        payload = {
+            "ok": status != "failed",
+            "task_id": task_id,
+            "status": status,
+            "suggested_filename": metadata.get("suggested_filename", ""),
+            "format": metadata.get("format", "xlsx"),
+        }
+        if status == "completed":
+            payload["download_url"] = url_for("download_result", task_id=task_id)
+        if status == "failed":
+            payload["error"] = metadata.get("error", "合并失败")
+        return payload, 200
+
+    def process_merge_task(
+        task_id: str,
+        saved_paths: list[Path],
+        *,
+        normalize_columns: bool,
+        enable_fuzzy: bool,
+        remove_duplicates: bool,
+        smart_dedup: bool,
+        dedup_keys: list[str],
+        exclude_columns: set[str],
+        output_format: str,
+    ) -> None:
+        job_dir = upload_root / task_id
+        update_task_metadata(task_id, status="running", started_at=datetime.now(timezone.utc).isoformat())
+
+        try:
+            config_manager = ConfigManager()
+            merger = ExcelMergerCore(config_manager)
+
+            all_dfs = []
+            mapping_report = {}
+
+            for file_path in saved_paths:
+                sheets = read_file(str(file_path))
+                for sheet_name, df in sheets.items():
+                    if df.empty:
+                        logger.info(
+                            "Skip empty sheet %s - %s", file_path.name, sheet_name
+                        )
+                        continue
+
+                    if normalize_columns:
+                        df = merger.normalize_columns(
+                            df, enable_fuzzy=enable_fuzzy
+                        )
+                        current_mapping = merger.get_mapping_report()
+                        if current_mapping:
+                            mapping_report[
+                                f"{file_path.name}-{sheet_name}"
+                            ] = current_mapping
+
+                    filename_without_ext = file_path.stem
+                    df.insert(0, "来源文件", filename_without_ext)
+                    df.insert(1, "工作表", sheet_name)
+
+                    if exclude_columns:
+                        cols_to_keep = [
+                            c
+                            for c in df.columns
+                            if str(c) not in exclude_columns
+                            or str(c) in {"来源文件", "工作表"}
+                        ]
+                        if len(cols_to_keep) < len(df.columns):
+                            df = df[cols_to_keep]
+
+                    all_dfs.append(df)
+
+            if not all_dfs:
+                raise ValueError("没有可合并的数据")
+
+            merged = pd.concat(all_dfs, join="outer", ignore_index=True, sort=False)
+            logger.info(
+                "Merged %s files into %s rows x %s cols",
+                len(saved_paths),
+                len(merged),
+                len(merged.columns),
+            )
+
+            original_count = len(merged)
+            if smart_dedup and dedup_keys:
+                merged = merger.deduplicate_smart(
+                    merged, key_columns=dedup_keys
+                )
+                removed = original_count - len(merged)
+                if removed > 0:
+                    logger.info("Smart dedup removed %s rows", removed)
+            elif remove_duplicates:
+                merged = merger.deduplicate_smart(merged)
+                removed = original_count - len(merged)
+                if removed > 0:
+                    logger.info("Full-row dedup removed %s rows", removed)
+
+            quality_report = merger.validate_data(merged)
+            logger.info("Quality report: %s", quality_report)
+            if mapping_report:
+                logger.info("Column mapping: %s", mapping_report)
+
+            output_path = job_dir / f"merged.{output_format}"
+            save_file(merged, output_path, file_format=output_format)
+
+            update_task_metadata(
+                task_id,
+                status="completed",
+                path=output_path.name,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                error="",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Merge failed: %s\n%s", exc, traceback.format_exc())
+            update_task_metadata(
+                task_id,
+                status="failed",
+                error=str(exc),
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -216,6 +379,7 @@ def create_app() -> Flask:
         job_dir = upload_root / task_id
         job_dir.mkdir(parents=True, exist_ok=True)
         saved_paths = []
+        suggested_filename = build_default_download_stem()
 
         try:
             total_size = 0
@@ -242,105 +406,63 @@ def create_app() -> Flask:
                     )
                 saved_paths.append(dest)
 
-            config_manager = ConfigManager()
-            merger = ExcelMergerCore(config_manager)
-
-            all_dfs = []
-            mapping_report = {}
-
-            for file_path in saved_paths:
-                sheets = read_file(str(file_path))
-                for sheet_name, df in sheets.items():
-                    if df.empty:
-                        logger.info(
-                            "Skip empty sheet %s - %s", file_path.name, sheet_name
-                        )
-                        continue
-
-                    if normalize_columns:
-                        df = merger.normalize_columns(
-                            df, enable_fuzzy=enable_fuzzy
-                        )
-                        current_mapping = merger.get_mapping_report()
-                        if current_mapping:
-                            mapping_report[
-                                f"{file_path.name}-{sheet_name}"
-                            ] = current_mapping
-
-                    filename_without_ext = file_path.stem
-                    df.insert(0, "来源文件", filename_without_ext)
-                    df.insert(1, "工作表", sheet_name)
-
-                    # 列删除过滤
-                    if exclude_columns:
-                        cols_to_keep = [
-                            c
-                            for c in df.columns
-                            if str(c) not in exclude_columns
-                            or str(c) in {"来源文件", "工作表"}
-                        ]
-                        if len(cols_to_keep) < len(df.columns):
-                            df = df[cols_to_keep]
-
-                    all_dfs.append(df)
-
-            if not all_dfs:
-                cleanup_job_dir(job_dir)
-                return jsonify({"ok": False, "error": "没有可合并的数据"}), 400
-
-            merged = pd.concat(all_dfs, join="outer", ignore_index=True, sort=False)
-            logger.info(
-                "Merged %s files into %s rows x %s cols",
-                len(saved_paths),
-                len(merged),
-                len(merged.columns),
-            )
-
-            original_count = len(merged)
-            if smart_dedup and dedup_keys:
-                merged = merger.deduplicate_smart(
-                    merged, key_columns=dedup_keys
-                )
-                removed = original_count - len(merged)
-                if removed > 0:
-                    logger.info("Smart dedup removed %s rows", removed)
-            elif remove_duplicates:
-                merged = merger.deduplicate_smart(merged)
-                removed = original_count - len(merged)
-                if removed > 0:
-                    logger.info("Full-row dedup removed %s rows", removed)
-
-            quality_report = merger.validate_data(merged)
-            logger.info("Quality report: %s", quality_report)
-            if mapping_report:
-                logger.info("Column mapping: %s", mapping_report)
-
-            output_path = job_dir / f"merged.{output_format}"
-            save_file(merged, output_path, file_format=output_format)
-
             save_task_metadata(
                 task_id,
                 {
-                    "path": output_path.name,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "format": output_format,
+                    "status": "queued",
+                    "suggested_filename": suggested_filename,
+                    "error": "",
                 },
             )
+
+            task_kwargs = {
+                "normalize_columns": normalize_columns,
+                "enable_fuzzy": enable_fuzzy,
+                "remove_duplicates": remove_duplicates,
+                "smart_dedup": smart_dedup,
+                "dedup_keys": dedup_keys,
+                "exclude_columns": exclude_columns,
+                "output_format": output_format,
+            }
+
+            if app.config.get("MERGE_ASYNC", True):
+                merge_executor.submit(
+                    process_merge_task,
+                    task_id,
+                    list(saved_paths),
+                    **task_kwargs,
+                )
+            else:
+                process_merge_task(
+                    task_id,
+                    list(saved_paths),
+                    **task_kwargs,
+                )
 
             return jsonify(
                 {
                     "ok": True,
                     "task_id": task_id,
-                    "download_url": url_for(
-                        "download_result", task_id=task_id
+                    "status": load_task_metadata(task_id).get("status", "queued"),
+                    "suggested_filename": suggested_filename,
+                    "status_url": url_for(
+                        "task_status", task_id=task_id
                     ),
                 }
-            )
+            ), 202
         except Exception as exc:  # noqa: BLE001
             cleanup_job_dir(job_dir)
             logger.error("Merge failed: %s\n%s", exc, traceback.format_exc())
             status_code = 400 if isinstance(exc, ValueError) else 500
             return jsonify({"ok": False, "error": str(exc)}), status_code
+
+    @app.route("/task/<task_id>")
+    @login_required
+    def task_status(task_id: str):
+        payload, status_code = build_task_status_payload(task_id)
+        return jsonify(payload), status_code
 
     @app.route("/download/<task_id>")
     @login_required
@@ -348,6 +470,8 @@ def create_app() -> Flask:
         metadata = load_task_metadata(task_id)
         if not metadata:
             return "任务不存在或已过期", 404
+        if metadata.get("status") != "completed":
+            return "任务尚未完成", 409
 
         output_path = upload_root / task_id / metadata.get("path", "")
         if not output_path.exists():
@@ -355,7 +479,8 @@ def create_app() -> Flask:
             return "文件不存在", 404
 
         fmt = metadata.get("format", "xlsx")
-        filename = f"merged_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{fmt}"
+        requested_name = request.args.get("filename", "")
+        filename = sanitize_download_name(requested_name, fmt)
         if fmt == "csv":
             mimetype = "text/csv"
         else:
